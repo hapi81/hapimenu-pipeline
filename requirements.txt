@@ -1,0 +1,8 @@
+runpod
+requests
+Pillow
+numpy
+torch
+torchvision
+segment-anything
+trimesh
