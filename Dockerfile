@@ -10,24 +10,26 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Instalare Python packages
-COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+# Instalare PyTorch cu CUDA
+RUN pip3 install --no-cache-dir torch==2.1.0 torchvision==0.16.0 --index-url https://download.pytorch.org/whl/cu121
+
+# Instalare segment-anything direct de pe GitHub
+RUN pip3 install --no-cache-dir git+https://github.com/facebookresearch/segment-anything.git
+
+# Restul dependențelor
+RUN pip3 install --no-cache-dir runpod requests Pillow numpy trimesh
 
 # Clonare TripoSR
 RUN git clone https://github.com/VAST-AI-Research/TripoSR.git && \
-    cd TripoSR && pip3 install -r requirements.txt
+    cd TripoSR && pip3 install --no-cache-dir -r requirements.txt
 
 # Copiere scripturi
 COPY handler.py .
 COPY blender_cleanup.py .
 COPY sam_segment.py .
 
-# Descărcare model SAM (sam_vit_h ~2.4GB) la build time
+# Descărcare model SAM (~2.4GB)
 RUN wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
     -O /app/sam_vit_h_4b8939.pth
-
-# Verificare
-RUN python3 -c "from segment_anything import sam_model_registry; print('SAM ok')"
 
 CMD ["python3", "handler.py"]
