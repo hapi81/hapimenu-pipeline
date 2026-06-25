@@ -1,12 +1,23 @@
-import runpod
-import os
-import requests
-import tempfile
-import subprocess
-import torch
-import numpy as np
-from PIL import Image
-from pathlib import Path
+import sys
+import traceback
+
+try:
+    import runpod
+    print("runpod ok")
+    import os
+    import requests
+    print("requests ok")
+    import tempfile
+    import subprocess
+    import torch
+    print(f"torch ok: {torch.__version__}")
+    import numpy as np
+    from PIL import Image
+    print("PIL ok")
+except Exception as e:
+    print(f"IMPORT ERROR: {e}")
+    traceback.print_exc()
+    sys.exit(1)
 
 def download_image(url, path):
     response = requests.get(url, timeout=30)
@@ -47,23 +58,23 @@ def run_sam_segmentation(image_paths, output_dir):
     return segmented
 
 def run_shape_e(image_path, output_dir):
-    """Generează model 3D cu Shap-E de la OpenAI."""
-    from shap_e.diffusion.sample import sample_latents
-    from shap_e.diffusion.gaussian_diffusion import diffusion_from_config
-    from shap_e.models.download import load_model, load_config
-    from shap_e.util.notebooks import decode_latent_mesh
-    import trimesh
+    try:
+        from shap_e.diffusion.sample import sample_latents
+        from shap_e.diffusion.gaussian_diffusion import diffusion_from_config
+        from shap_e.models.download import load_model, load_config
+        from shap_e.util.notebooks import decode_latent_mesh
+        print("shap_e imports ok")
+    except Exception as e:
+        raise Exception(f"Shap-E import error: {e}")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Shap-E rulează pe: {device}")
+    print(f"Device: {device}")
 
     xm = load_model('transmitter', device=device)
     model = load_model('image300M', device=device)
     diffusion = diffusion_from_config(load_config('diffusion'))
 
-    image = Image.open(image_path).convert('RGBA')
-    # Resize la 256x256 pentru Shap-E
-    image = image.resize((256, 256))
+    image = Image.open(image_path).convert('RGBA').resize((256, 256))
 
     latents = sample_latents(
         batch_size=1,
@@ -83,10 +94,8 @@ def run_shape_e(image_path, output_dir):
 
     mesh = decode_latent_mesh(xm, latents[0]).tri_mesh()
     obj_path = os.path.join(output_dir, "mesh.obj")
-
     with open(obj_path, 'w') as f:
         mesh.write_obj(f)
-
     return obj_path
 
 def run_blender_cleanup(obj_path, output_glb):
@@ -113,7 +122,6 @@ def handler(job):
 
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
-            # 1. Descarcă imaginile
             print(f"[1/4] Descărcare imagini...")
             image_paths = []
             for i, url in enumerate(image_urls):
@@ -121,24 +129,20 @@ def handler(job):
                 download_image(url, path)
                 image_paths.append(path)
 
-            # 2. SAM segmentation
             print("[2/4] Segmentare SAM...")
             seg_dir = os.path.join(tmp_dir, "segmented")
             os.makedirs(seg_dir)
             segmented_paths = run_sam_segmentation(image_paths, seg_dir)
 
-            # 3. Shap-E generare 3D (folosim imaginea din față = index 0)
             print("[3/4] Generare 3D cu Shap-E...")
-            triposr_dir = os.path.join(tmp_dir, "shape_output")
-            os.makedirs(triposr_dir)
-            obj_path = run_shape_e(segmented_paths[0], triposr_dir)
+            shape_dir = os.path.join(tmp_dir, "shape_output")
+            os.makedirs(shape_dir)
+            obj_path = run_shape_e(segmented_paths[0], shape_dir)
 
-            # 4. Blender cleanup + export .glb
             print("[4/4] Export .glb cu Blender...")
             glb_path = os.path.join(tmp_dir, f"{product_id}.glb")
             run_blender_cleanup(obj_path, glb_path)
 
-            # 5. Upload Supabase
             print("Upload .glb în Supabase...")
             filename = f"{product_id}.glb"
             public_url = upload_to_supabase(glb_path, "product-models", filename)
@@ -151,7 +155,7 @@ def handler(job):
             }
 
     except Exception as e:
-        print(f"EROARE: {str(e)}")
+        traceback.print_exc()
         return {
             "success": False,
             "product_id": product_id,
@@ -159,4 +163,5 @@ def handler(job):
             "error": str(e)
         }
 
+print("Handler loaded, starting runpod...")
 runpod.serverless.start({"handler": handler})
