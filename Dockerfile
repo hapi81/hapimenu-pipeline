@@ -1,10 +1,8 @@
-FROM runpod/base:0.6.2-cuda12.2.0
-
-RUN apt-get update && apt-get install -y python3-pip && rm -rf /var/lib/apt/lists/*
+FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip3 install --no-cache-dir runpod requests Pillow
+RUN pip3 install --no-cache-dir runpod
 
 COPY handler.py .
 
