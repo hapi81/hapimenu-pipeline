@@ -27,8 +27,10 @@ RUN wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth
     -O /app/sam_vit_h_4b8939.pth
 
 # Instalare numpy în Python-ul intern al Blender (necesar pentru exportul glTF)
-RUN /usr/share/blender/scripts/../../python/bin/python3* -m pip install numpy 2>/dev/null || \
-    find / -path "*/blender/*/python/bin/python3*" -exec {} -m pip install numpy \;
+RUN BLENDER_PY=$(ls /usr/share/blender/*/python/bin/python3.* 2>/dev/null | head -1) && \
+    echo "Blender python: $BLENDER_PY" && \
+    $BLENDER_PY -m ensurepip && \
+    $BLENDER_PY -m pip install numpy
 
 COPY handler.py .
 COPY blender_cleanup.py .
