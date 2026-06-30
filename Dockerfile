@@ -26,11 +26,18 @@ RUN pip3 install --no-cache-dir runpod requests Pillow numpy trimesh ipywidgets
 RUN wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
     -O /app/sam_vit_h_4b8939.pth
 
-# Instalare numpy în Python-ul intern al Blender (necesar pentru exportul glTF)
-RUN BLENDER_PY=$(ls /usr/share/blender/*/python/bin/python3.* 2>/dev/null | head -1) && \
-    echo "Blender python: $BLENDER_PY" && \
-    $BLENDER_PY -m ensurepip && \
-    $BLENDER_PY -m pip install numpy
+# Debug: găsim structura exactă a Blender
+RUN dpkg -L blender | grep -i python | head -20
+RUN ls -la /usr/share/blender/ 2>/dev/null || true
+RUN find /usr/share/blender -maxdepth 4 -type d 2>/dev/null | head -30
+
+# Instalare numpy în Python-ul intern al Blender
+RUN BLENDER_PY=$(find /usr/share/blender -name "python3.*" -type f 2>/dev/null | head -1) && \
+    if [ -z "$BLENDER_PY" ]; then BLENDER_PY=$(find /opt -name "python3.*" -type f -path "*blender*" 2>/dev/null | head -1); fi && \
+    echo "Blender python found at: $BLENDER_PY" && \
+    test -n "$BLENDER_PY" && \
+    "$BLENDER_PY" -m ensurepip --default-pip && \
+    "$BLENDER_PY" -m pip install numpy
 
 COPY handler.py .
 COPY blender_cleanup.py .
