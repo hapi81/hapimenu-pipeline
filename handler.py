@@ -89,10 +89,12 @@ def run_blender_cleanup(obj_path, output_glb):
         "blender", "--background", "--python", "/app/blender_cleanup.py",
         "--", obj_path, output_glb
     ], capture_output=True, text=True, timeout=180)
+    print("[Blender STDOUT]:", result.stdout)
+    print("[Blender STDERR]:", result.stderr)
     if result.returncode != 0:
-        raise Exception(f"Blender eroare: {result.stderr}")
+        raise Exception(f"Blender eroare (code {result.returncode}): {result.stderr[-2000:]}")
     if not os.path.exists(output_glb):
-        raise Exception("Blender nu a generat .glb")
+        raise Exception(f"Blender nu a generat .glb. STDOUT: {result.stdout[-1000:]}")
     return output_glb
 
 def handler(job):
