@@ -20,7 +20,7 @@ RUN pip3 install --no-cache-dir git+https://github.com/facebookresearch/segment-
 RUN pip3 install --no-cache-dir git+https://github.com/openai/shap-e.git
 
 # Restul
-RUN pip3 install --no-cache-dir runpod requests Pillow numpy trimesh
+RUN pip3 install --no-cache-dir runpod requests Pillow numpy trimesh ipywidgets
 
 # Model SAM (~2.4GB)
 RUN wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
