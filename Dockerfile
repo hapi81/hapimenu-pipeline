@@ -26,6 +26,10 @@ RUN pip3 install --no-cache-dir runpod requests Pillow numpy trimesh ipywidgets
 RUN wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
     -O /app/sam_vit_h_4b8939.pth
 
+# Instalare numpy în Python-ul intern al Blender (necesar pentru exportul glTF)
+RUN /usr/share/blender/scripts/../../python/bin/python3* -m pip install numpy 2>/dev/null || \
+    find / -path "*/blender/*/python/bin/python3*" -exec {} -m pip install numpy \;
+
 COPY handler.py .
 COPY blender_cleanup.py .
 COPY sam_segment.py .
