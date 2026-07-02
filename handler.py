@@ -19,15 +19,20 @@ def upload_to_supabase(file_path, bucket, filename):
     supabase_url = os.environ.get("SUPABASE_URL")
     service_key = os.environ.get("SUPABASE_SERVICE_KEY")
     url = f"{supabase_url}/storage/v1/object/{bucket}/{filename}"
+    print(f"[Upload] URL: {url}")
+    print(f"[Upload] Key prefix: {service_key[:20] if service_key else 'None'}...")
     with open(file_path, 'rb') as f:
         response = requests.post(
             url,
             headers={
                 "Authorization": f"Bearer {service_key}",
-                "Content-Type": "model/gltf-binary"
+                "apikey": service_key,
+                "Content-Type": "model/gltf-binary",
+                "x-upsert": "true"
             },
             data=f
         )
+    print(f"[Upload] Status: {response.status_code}, Response: {response.text[:200]}")
     if response.status_code in [200, 201]:
         return f"{supabase_url}/storage/v1/object/public/{bucket}/{filename}"
     else:
