@@ -84,17 +84,21 @@ def run_shape_e(image_path, output_dir):
         mesh.write_obj(f)
     return obj_path
 
-def run_blender_cleanup(obj_path, output_glb):
-    result = subprocess.run([
-        "blender", "--background", "--python", "/app/blender_cleanup.py",
-        "--", obj_path, output_glb
-    ], capture_output=True, text=True, timeout=180)
-    print("[Blender STDOUT]:", result.stdout)
-    print("[Blender STDERR]:", result.stderr)
-    if result.returncode != 0:
-        raise Exception(f"Blender eroare (code {result.returncode}): {result.stderr[-2000:]}")
-    if not os.path.exists(output_glb):
-        raise Exception(f"Blender nu a generat .glb. STDOUT: {result.stdout[-1000:]}")
+def run_trimesh_export(obj_path, output_glb):
+    """Exportă .obj → .glb folosind trimesh (fără Blender)."""
+    import trimesh
+    print(f"[trimesh] Import {obj_path}...")
+    mesh = trimesh.load(obj_path, force='mesh')
+    print(f"[trimesh] Mesh încărcat: {mesh}")
+
+    # Normalizează la max 1m
+    scale = 1.0 / max(mesh.extents) if max(mesh.extents) > 0 else 1.0
+    mesh.apply_scale(scale)
+    mesh.apply_translation(-mesh.centroid)
+
+    print(f"[trimesh] Export .glb → {output_glb}")
+    mesh.export(output_glb)
+    print(f"[trimesh] Export complet, size: {os.path.getsize(output_glb)} bytes")
     return output_glb
 
 def handler(job):
@@ -128,9 +132,9 @@ def handler(job):
             os.makedirs(shape_dir)
             obj_path = run_shape_e(segmented_paths[0], shape_dir)
 
-            print("[4/4] Export .glb cu Blender...")
+            print("[4/4] Export .glb cu trimesh...")
             glb_path = os.path.join(tmp_dir, f"{product_id}.glb")
-            run_blender_cleanup(obj_path, glb_path)
+            run_trimesh_export(obj_path, glb_path)
 
             print("Upload .glb în Supabase...")
             filename = f"{product_id}.glb"
