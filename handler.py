@@ -47,8 +47,21 @@ def run_sam_segmentation(image_paths, output_dir):
             "--input", img_path,
             "--output", out_path
         ], capture_output=True, text=True, timeout=120)
+
+        # Logging vizibil, altfel stdout-ul SAM e capturat si aruncat silentios.
+        print(f"[SAM {i}] stdout: {result.stdout.strip()}")
+        if result.stderr:
+            print(f"[SAM {i}] stderr: {result.stderr.strip()}")
+        print(f"[SAM {i}] returncode: {result.returncode}")
+
         if result.returncode != 0:
             raise Exception(f"SAM eroare: {result.stderr}")
+
+        # Verificare explicita daca fallback-ul (fara masca gasita) a fost activat.
+        if "Segmentare completă" not in result.stdout:
+            print(f"[SAM {i}] AVERTISMENT: nu am gasit confirmarea de segmentare in stdout. "
+                  f"Posibil fallback pe imaginea originala fara canal alpha transparent.")
+
         segmented.append(out_path)
     return segmented
 
