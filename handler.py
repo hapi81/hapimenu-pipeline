@@ -65,7 +65,11 @@ def run_sam_segmentation(image_paths, output_dir):
         segmented.append(out_path)
     return segmented
 
-def run_shape_e(image_path, output_dir):
+def run_shape_e_DEPRECATED(image_path, output_dir):
+    """Metoda veche de generare 3D (single-image, fără textură/UV — doar
+    culoare per-vertex). Păstrată neschimbată ca fallback rapid dacă
+    InstantMesh eșuează la runtime; nu mai e calea principală (vezi
+    run_instantmesh mai jos și handler())."""
     from shap_e.diffusion.sample import sample_latents
     from shap_e.diffusion.gaussian_diffusion import diffusion_from_config
     from shap_e.models.download import load_model, load_config
@@ -102,8 +106,70 @@ def run_shape_e(image_path, output_dir):
         mesh.write_obj(f)
     return obj_path
 
+def run_instantmesh(image_path, output_dir):
+    """Generare 3D cu InstantMesh (Tencent ARC) — single-image, cu textură UV
+    reală (Zero123++ pentru sinteza celor 6 vederi + reconstrucție LRM).
+    Înlocuiește Shap-E ca metodă principală, confirmat empiric funcțional pe
+    Blackwell/sm_120 (test pe RunPod, mesh + textură UV verificate vizual).
+
+    Rulat ca subprocess (nu import direct în proces), la fel ca run_sam_segmentation
+    — run.py e un script CLI monolitic (config via omegaconf, setup CUDA propriu),
+    nu conceput ca funcție importabilă; refactorizarea lui nu a fost testată și ar
+    risca să difere de fluxul dovedit funcțional în test.
+
+    Folosește imaginea ORIGINALĂ (needitată de SAM), nu output-ul SAM: InstantMesh
+    face propria eliminare de fundal intern (rembg, implicit dacă --no_rembg nu e
+    dat) — exact configurația testată empiric cu succes. Nicio dovadă găsită că
+    imaginea SAM-segmentată ar da rezultate mai bune; schimbarea asta ar însemna
+    să ne abatem de la singura configurație confirmată funcțională, fără motiv.
+    """
+    cmd = [
+        "python3", "/app/InstantMesh/run.py",
+        "/app/InstantMesh/configs/instant-mesh-large.yaml",
+        image_path,
+        "--export_texmap",
+        "--output_path", output_dir,
+    ]
+
+    env = os.environ.copy()
+    # nvdiffrast nu e instalat ca pachet normal (vezi Dockerfile) — trebuie expus
+    # explicit prin PYTHONPATH și în subprocess, altfel run.py nu-l găsește.
+    env["PYTHONPATH"] = "/app/nvdiffrast_src:" + env.get("PYTHONPATH", "")
+
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=600,
+        env=env, cwd="/app/InstantMesh"
+    )
+
+    print(f"[InstantMesh] stdout (ultimele 3000 caractere): {result.stdout[-3000:]}")
+    if result.stderr:
+        print(f"[InstantMesh] stderr (ultimele 3000 caractere): {result.stderr[-3000:]}")
+    print(f"[InstantMesh] returncode: {result.returncode}")
+
+    if result.returncode != 0:
+        raise Exception(f"InstantMesh eroare: {result.stderr[-1500:]}")
+
+    # run.py salvează în {output_path}/instant-mesh-large/meshes/{basename}.obj
+    # (plus .mtl și .png alături, referențiate din .mtl — nu mutate/redenumite aici,
+    # run_trimesh_export le citește direct de la calea .obj).
+    basename = os.path.splitext(os.path.basename(image_path))[0]
+    obj_path = os.path.join(output_dir, "instant-mesh-large", "meshes", f"{basename}.obj")
+
+    if not os.path.exists(obj_path):
+        raise Exception(f"InstantMesh nu a produs fișierul așteptat: {obj_path}")
+
+    return obj_path
+
 def run_trimesh_export(obj_path, output_glb):
-    """Exportă .obj → .glb folosind trimesh (fără Blender)."""
+    """Exportă .obj → .glb folosind trimesh (fără Blender).
+
+    Verificat explicit local (fișierele reale din testul InstantMesh anterior,
+    trimesh 5.1.0): trimesh.load(obj_path, force='mesh') citește corect
+    materialul din .mtl și textura din .png (mesh.visual.material.image,
+    UV coords prezente), iar după export + reîncărcare GLB, textura
+    supraviețuiește ca baseColorTexture încorporat — nu doar geometria goală.
+    Cu Shap-E (fără material/textură deloc) acest cod funcționa oricum, deci
+    n-a fost nevoie de nicio modificare aici pentru InstantMesh."""
     import trimesh
     print(f"[trimesh] Import {obj_path}...")
     mesh = trimesh.load(obj_path, force='mesh')
@@ -125,8 +191,12 @@ def handler(job):
     job_id = job_input.get("job_id")
     image_urls = job_input.get("images", [])
 
-    if len(image_urls) != 5:
-        return {"error": f"Necesare 5 imagini, primite {len(image_urls)}"}
+    # Relaxat de la "== 5" strict: Unity-ul curent trimite tot 5 imagini (Față/
+    # Spate/Stânga/Dreapta/Sus), păstrăm compatibilitatea cu el neschimbat. Dar
+    # InstantMesh (single-image) folosește doar prima — restul sunt acceptate,
+    # nu erori, dar ignorate silențios pentru generarea efectivă (vezi mai jos).
+    if len(image_urls) < 1:
+        return {"error": f"Necesară cel puțin o imagine, primite {len(image_urls)}"}
     if not product_id or not job_id:
         return {"error": "product_id și job_id sunt obligatorii"}
 
@@ -138,17 +208,24 @@ def handler(job):
                 path = os.path.join(tmp_dir, f"image_{i}.jpg")
                 download_image(url, path)
                 image_paths.append(path)
-                print(f"  Imagine {i+1}/5 descărcată")
+                print(f"  Imagine {i+1}/{len(image_urls)} descărcată")
 
-            print("[2/4] Segmentare SAM...")
+            # SAM rulează doar pe prima imagine (singura folosită efectiv, mai jos) —
+            # segmentarea celorlalte 4 ar fi timp/cost irosit, InstantMesh nici nu le
+            # folosește. Output-ul SAM rămâne disponibil pentru fallback-ul Shap-E
+            # (run_shape_e_DEPRECATED), care chiar are nevoie de imagine cu fundal
+            # eliminat (RGBA) — InstantMesh nu, vezi run_instantmesh().
+            print("[2/4] Segmentare SAM (doar prima imagine)...")
             seg_dir = os.path.join(tmp_dir, "segmented")
             os.makedirs(seg_dir)
-            segmented_paths = run_sam_segmentation(image_paths, seg_dir)
+            segmented_paths = run_sam_segmentation(image_paths[:1], seg_dir)
 
-            print("[3/4] Generare 3D cu Shap-E...")
-            shape_dir = os.path.join(tmp_dir, "shape_output")
-            os.makedirs(shape_dir)
-            obj_path = run_shape_e(segmented_paths[0], shape_dir)
+            print("[3/4] Generare 3D cu InstantMesh...")
+            mesh_dir = os.path.join(tmp_dir, "instantmesh_output")
+            os.makedirs(mesh_dir)
+            # Imaginea ORIGINALĂ (nu segmented_paths[0]) — vezi motivul detaliat
+            # în docstring-ul run_instantmesh().
+            obj_path = run_instantmesh(image_paths[0], mesh_dir)
 
             print("[4/4] Export .glb cu trimesh...")
             glb_path = os.path.join(tmp_dir, f"{product_id}.glb")
