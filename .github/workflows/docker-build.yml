@@ -25,6 +25,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Runner-ul standard GitHub are doar ~14GB liber implicit — insuficient
+      # pentru imaginea noastra (CUDA devel + PyTorch + dependinte, confirmat
+      # empiric: primul build a esuat cu "No space left on device"). Eliberam
+      # spatiu inainte de build stergand unelte preinstalate neutilizate aici
+      # (Android SDK, .NET, GHC, CodeQL etc.), care elibereaza de obicei ~25-30GB.
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: false
+          swap-storage: true
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
