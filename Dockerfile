@@ -67,6 +67,21 @@ RUN pip3 install --no-cache-dir onnxruntime
 ENV TORCH_CUDA_ARCH_LIST="12.0"
 RUN git clone https://github.com/NVlabs/nvdiffrast.git /app/nvdiffrast_src \
     && cd /app/nvdiffrast_src && python3 setup.py install
+
+# Fix pentru eroare confirmata in productie (build GHCR, test real end-to-end):
+# nvdiffrast/__init__.py face `importlib.metadata.version('nvdiffrast')` la import,
+# care cauta metadata pachetului instalat sub numele exact "nvdiffrast" - dar
+# `setup.py install` nu mai inregistreaza mereu aceasta metadata (comportament
+# fragil, dependent de versiunea pip/setuptools din imaginea de baza la momentul
+# build-ului - a functionat in sesiunea SSH de test, dar a esuat identic in
+# productie cu eroarea exacta importlib.metadata.PackageNotFoundError: No package
+# metadata was found for nvdiffrast). Fix robust, independent de comportamentul
+# setup.py: suprascriem fisierul cu o versiune hardcodata, eliminand complet
+# dependenta de importlib.metadata la import. Continutul original al fisierului
+# (verificat direct din sursa oficiala NVlabs/nvdiffrast) e doar acest lookup de
+# versiune, nimic altceva - sigur de inlocuit integral.
+RUN printf '__version__ = "0.3.3"\n' > /app/nvdiffrast_src/nvdiffrast/__init__.py
+
 ENV PYTHONPATH="/app/nvdiffrast_src:${PYTHONPATH}"
 
 # Restul dependințelor pipeline-ului (neschimbate)
