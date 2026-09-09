@@ -72,21 +72,22 @@ ENV PYTHONPATH="/app/nvdiffrast_src:${PYTHONPATH}"
 # Restul dependințelor pipeline-ului (neschimbate)
 RUN pip3 install --no-cache-dir runpod requests Pillow numpy trimesh ipywidgets
 
-# ── Checkpoint-uri, pre-descărcate la build time (ca sam_vit_h_4b8939.pth) ──
-# Fără asta, primul request servit de fiecare worker RunPod nou (cold start)
-# ar descărca ~6.7GB la runtime — confirmat empiric ~2-3 minute în plus doar
-# pentru download, pe lângă generarea efectivă. Repo ID-urile exacte HuggingFace
-# sunt verificate din codul sursă run.py (TencentARC/InstantMesh, sudo-ai/zero123plus-v1.2),
-# nu presupuse. Rulează pe CPU la build (from_pretrained fără .to('cuda')), deci
-# nu are nevoie de GPU la acest pas.
-RUN python3 -c "\
-from huggingface_hub import hf_hub_download; \
-from diffusers import DiffusionPipeline; \
-hf_hub_download(repo_id='TencentARC/InstantMesh', filename='diffusion_pytorch_model.bin', repo_type='model'); \
-hf_hub_download(repo_id='TencentARC/InstantMesh', filename='instant_mesh_large.ckpt', repo_type='model'); \
-DiffusionPipeline.from_pretrained('sudo-ai/zero123plus-v1.2', custom_pipeline='zero123plus')"
+# ── Checkpoint-uri InstantMesh/Zero123++ (~6.7GB) — NU mai pre-descărcate la
+# build time. Build-ul RunPod eșuează consecvent ("Creating cache directory"
+# apoi nimic, fără nicio linie din execuția Dockerfile-ului) pe mașina lor de
+# build, separată de Container Disk-ul endpoint-ului — confirmat de suportul
+# RunPod, mărirea Container Disk-ului nu a avut niciun efect. Suspiciune:
+# imaginea (CUDA devel + torch + aceste checkpoint-uri) depășește limita
+# mașinii lor de build. Le lăsăm să se descarce la runtime, la primul request
+# servit de fiecare worker nou — cost: ~2-3 minute în plus doar la cold start,
+# o singură dată per worker (huggingface_hub cache-uiește local pe disk după
+# prima descărcare, requesturile următoare pe același worker nu re-descarcă).
+# Repo ID-urile sunt cele verificate din codul sursă run.py (TencentARC/InstantMesh,
+# sudo-ai/zero123plus-v1.2) — descărcarea se întâmplă automat prin run.py însuși,
+# nu necesită cod separat aici.
 
-# Model SAM (~2.4GB)
+# Model SAM (~2.4GB) — păstrat pre-descărcat la build (funcționa deja înainte de
+# migrarea la InstantMesh, nu e suspectat ca fiind cauza eșecului de build).
 RUN wget -q https://dl.fbaipublicfiles.com/segment_anything/sam_vit_h_4b8939.pth \
     -O /app/sam_vit_h_4b8939.pth
 
