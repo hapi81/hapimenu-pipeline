@@ -136,8 +136,16 @@ def run_instantmesh(image_path, output_dir):
     # explicit prin PYTHONPATH și în subprocess, altfel run.py nu-l găsește.
     env["PYTHONPATH"] = "/app/nvdiffrast_src:" + env.get("PYTHONPATH", "")
 
+    # timeout=1200 (20 min), nu 600 (10 min, valoarea veche): confirmat empiric
+    # in productie (job RunPod ccd2e1e4-e1ed-450c-9159-c601fa3db553-u1) ca
+    # subprocess-ul singur a durat >600s la primul cold-start pe worker nou -
+    # checkpoint-urile InstantMesh/Zero123++ (~6.7GB) nu mai sunt pre-bake-uite
+    # in imagine (eliminat pentru limitarea builder-ului RunPod), deci se
+    # descarca acum la runtime, adaugand ~2-3 min peste inferenta efectiva.
+    # 1200s lasa loc de rezerva sub executionTimeoutMs=1500000 (25 min) al
+    # endpoint-ului RunPod, pentru pasii ramasi (SAM, export trimesh, upload).
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=600,
+        cmd, capture_output=True, text=True, timeout=1200,
         env=env, cwd="/app/InstantMesh"
     )
 
