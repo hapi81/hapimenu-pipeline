@@ -1,0 +1,45 @@
+name: Build and push Docker image
+
+# Se declanseaza la fiecare push pe master. Construieste imaginea din
+# Dockerfile-ul existent si o publica pe GitHub Container Registry (GHCR),
+# ocolind builder-ul intern RunPod (defect confirmat: 3 esecuri identice,
+# indiferent de continutul imaginii). RunPod trage apoi imaginea gata
+# construita de aici, in loc sa o construiasca el insusi.
+on:
+  push:
+    branches:
+      - master
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
